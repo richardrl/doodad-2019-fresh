@@ -547,6 +547,14 @@ class EC2SpotDocker(DockerMode):
             UserData=user_data,
             InstanceType=aws_config["instance_type"],
             EbsOptimized=False,
+            BlockDeviceMappings=[
+                {
+                    "DeviceName": "/dev/xvda",
+                    "Ebs": {
+                        "VolumeSize": 130,
+                    }
+                }
+            ],
             SecurityGroups=aws_config["security_groups"],
             SecurityGroupIds=aws_config["security_group_ids"],
             NetworkInterfaces=aws_config["network_interfaces"],
