@@ -119,6 +119,7 @@ class DockerMode(LaunchMode):
         if self.gpu:
             docker_prefix = 'nvidia-'+docker_prefix
         main_cmd = cmd_list.to_string()
+        print(main_cmd)
         full_cmd = docker_prefix + ("\'%s\'" % main_cmd)
         return full_cmd
 
@@ -296,7 +297,7 @@ class EC2SpotDocker(DockerMode):
     def make_timekey(self):
         return '%d'%(int(time.time()*1000))
 
-    def launch_command(self, main_cmd, mount_points=None, dry=False, verbose=False):
+    def launch_command(self, main_cmd, mount_points=None, dry=False, verbose=True):
         default_config = dict(
             image_id=self.image_id,
             instance_type=self.instance_type,
@@ -308,7 +309,7 @@ class EC2SpotDocker(DockerMode):
             network_interfaces=[],
         )
         aws_config = dict(default_config)
-        if self.s3_log_name is None:
+        if not self.s3_log_name:
             exp_name = "{}-{}".format(self.s3_log_prefix, self.make_timekey())
         else:
             exp_name = self.s3_log_name
@@ -322,6 +323,10 @@ class EC2SpotDocker(DockerMode):
         sio.write("{\n")
         sio.write('die() { status=$1; shift; echo "FATAL: $*"; exit $status; }\n')
         sio.write('EC2_INSTANCE_ID="`wget -q -O - http://169.254.169.254/latest/meta-data/instance-id`"\n')
+        # sio.write("set -x \n")
+        # sio.write("set -o xtrace \n")
+        # sio.write("exec > >(tee /var/log/user-data.log|logger -t user-data ) 2 >&1")
+        # sio.write("echo BEGIN")
         sio.write("""
             aws ec2 create-tags --resources $EC2_INSTANCE_ID --tags Key=Name,Value={exp_name} --region {aws_region}
         """.format(exp_name=exp_name, aws_region=self.region))
@@ -523,6 +528,10 @@ class EC2SpotDocker(DockerMode):
             aws_secret_access_key=self.credentials.aws_secret_key,
         )
 
+        ec2_session = boto3.Session(region_name=self.region,
+                                    aws_access_key_id=self.credentials.aws_key,
+                                    aws_secret_access_key=self.credentials.aws_secret_key)
+
         if len(full_script) > 10000 or len(base64.b64encode(full_script.encode()).decode("utf-8")) > 10000:
             s3_path = self.upload_file_to_s3(full_script, dry=dry)
             sio = StringIO()
@@ -577,12 +586,22 @@ class EC2SpotDocker(DockerMode):
             pprint.pprint(spot_args)
         if not dry:
             response = ec2.request_spot_instances(**spot_args)
+            # print("spot args")
+            # print(spot_args)
+            # run_args = spot_args['LaunchSpecification']
+            # run_args['MaxCount'] = 1
+            # run_args['MinCount'] = 1
+            # print("UserData")
+            # print(run_args['UserData'])
+            # response = ec2_session.resource('ec2').create_instances(**run_args)
+
+            # response = ec2.run_instances(**run_args)
             print('Launched EC2 job - Server response:')
             pprint.pprint(response)
             print('*****'*5)
-            spot_request_id = response['SpotInstanceRequests'][
-                0]['SpotInstanceRequestId']
-            for _ in range(10):
+            spot_request_id = response['SpotInstanceRequests'][0]['SpotInstanceRequestId']
+            for _ in range(10000):
+                print(F"Attempting to set {exp_name}")
                 try:
                     ec2.create_tags(
                         Resources=[spot_request_id],
